@@ -1,4 +1,5 @@
-#include "libcvmfs_cache.h"
+#include <libcvmfs_cache.h>
+#include <RamCloud.h>
 
 #include <unistd.h>
 
