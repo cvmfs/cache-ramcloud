@@ -1,6 +1,5 @@
 #define __STDC_FORMAT_MACROS
 
-
 #include <libcvmfs_cache.h>
 #include <ClientException.h>
 #include <RamCloud.h>
@@ -44,7 +43,6 @@ struct OpenFile {
   uint64_t size;
 };
 
-map<ObjectKey, OpenFile> open_files;
 map<uint64_t, TxnTransient> transactions;
 
 
@@ -79,9 +77,6 @@ static int rc_chrefcnt(struct cvmcache_hash *id, int32_t change_by) {
       success = true;
     } catch (RAMCloud::ClientException &e) { }
   } while (!success);
-  if (change_by > 0) {
-    open_files[ObjectKey(*id)] = OpenFile(object.nonce, object.size);
-  }
   printf("%s file %s\n",
          (change_by == 1) ? "opening" : "closing", object.description);
   return CVMCACHE_STATUS_OK;
@@ -93,7 +88,13 @@ int rc_obj_info(struct cvmcache_hash *id,
 {
   //printf("Info %s... ", cvmcache_hash_print(id));
   // Currently only size is needed
-  info->size = open_files[ObjectKey(*id)].size;
+  ObjectKey key(*id);
+  RAMCloud::Buffer buffer;
+  ramcloud->read(table_objects, &key, sizeof(key), &buffer);
+  assert(buffer.size() == sizeof(ObjectData));
+  ObjectData object;
+  buffer.copy(0, sizeof(object), &object);
+  info->size = object.size;
   return CVMCACHE_STATUS_OK;
 }
 
@@ -103,35 +104,41 @@ static int rc_pread(struct cvmcache_hash *id,
                     uint32_t *size,
                     unsigned char *buffer)
 {
-  OpenFile file = open_files[ObjectKey(*id)];
-  if (offset >= file.size)
+  ObjectKey object_key(*id);
+  RAMCloud::Buffer obj_buffer;
+  ramcloud->read(table_objects, &object_key, sizeof(object_key), &obj_buffer);
+  assert(obj_buffer.size() == sizeof(ObjectData));
+  ObjectData object;
+  obj_buffer.copy(0, sizeof(object), &object);
+  if (offset >= object.size)
     return CVMCACHE_STATUS_OUTOFBOUNDS;
-  Nonce nonce = file.nonce;
-  PartKey key(nonce, offset / part_size);
+
+  Nonce nonce = object.nonce;
+  PartKey part_key(nonce, offset / part_size);
   uint32_t nbytes = 0;
   while (nbytes < *size) {
-    RAMCloud::Buffer rc_buffer;
+    RAMCloud::Buffer part_buffer;
     try {
-      //printf("  reading %s, %" PRIu64 "\n",
-      //   cvmcache_hash_print(&block_key.hash), block_key.part_nr);
+      printf("reading %s, %" PRIu64 "\n",
+             cvmcache_hash_print(id), part_key.part_nr);
       //printf("before read\n");
-      ramcloud->read(table_parts, &key, sizeof(key), &rc_buffer);
-      //printf("after read\n");
+      ramcloud->read(table_parts, &part_key, sizeof(part_key), &part_buffer);
+      printf("after read\n");
       uint64_t in_block_offset = 0;
       if (nbytes == 0) {
         in_block_offset =
-          offset - (key.part_nr * part_size);
+          offset - (part_key.part_nr * part_size);
       }
       uint32_t remaining =
-        std::min((uint32_t)(rc_buffer.size() - in_block_offset),
+        std::min((uint32_t)(part_buffer.size() - in_block_offset),
                             *size - nbytes);
-      rc_buffer.copy(in_block_offset, remaining, buffer + nbytes);
+      part_buffer.copy(in_block_offset, remaining, buffer + nbytes);
       nbytes += remaining;
     } catch (RAMCloud::ClientException &e) {
       //printf("  ...pread failed with %s\n", e.what());
       break;
     }
-    key.part_nr++;
+    part_key.part_nr++;
   }
   *size = nbytes;
   //printf("  ... ok (%u)\n", nbytes);
@@ -166,7 +173,7 @@ int rc_write_txn(uint64_t txn_id,
                  unsigned char *buffer,
                  uint32_t size)
 {
-  //printf("Write transaction %" PRIu64 "\n", txn_id);
+  printf("Write transaction %" PRIu64 "\n", txn_id);
   TxnTransient txn(transactions[txn_id]);
   PartKey key(txn.object.nonce, txn.object.size / part_size);
   //printf("  writing %s, %" PRIu64 "\n",
@@ -184,14 +191,16 @@ int rc_write_txn(uint64_t txn_id,
 
 
 int rc_commit_txn(uint64_t txn_id) {
-  //printf("Commit transaction %" PRIu64 "\n", txn_id);
   TxnTransient txn(transactions[txn_id]);
+  printf("Commit transaction %" PRIu64 ", size %" PRIu64 "\n",
+         txn_id, txn.object.size);
   txn.object.refcnt = 1;
   txn.object.last_updated = time(NULL);
   ObjectKey key(txn.id);
+  ObjectData object;
   bool success = false;
   do {
-    ObjectData object = txn.object;
+    object = txn.object;
     RAMCloud::Buffer buffer;
     RAMCloud::RejectRules rules;
     memset(&rules, 0, sizeof(rules));
@@ -225,7 +234,7 @@ int rc_commit_txn(uint64_t txn_id) {
 }
 
 int rc_abort_txn(uint64_t txn_id) {
-  //printf("Abort transaction %" PRIu64 "\n", txn_id);
+  printf("Abort transaction %" PRIu64 "\n", txn_id);
   transactions.erase(txn_id);
   // TODO(jblomer): remove from ramcloud
   return CVMCACHE_STATUS_OK;
