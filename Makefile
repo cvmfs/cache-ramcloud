@@ -11,10 +11,7 @@ LDFLAGS_CVMFS = $(LIBCVMFS_CACHE_DIR)/libcvmfs_cache.a -lcrypto
 LDFLAGS_RAMCLOUD = $(RAMCLOUD_DIR)/obj.master/libramcloud.a -lpcrecpp -lprotobuf -lboost_system
 LDFLAGS = $(LDFLAGS_GENERIC) $(LDFLAGS_CVMFS) $(LDFLAGS_RAMCLOUD)
 
-all: cvmfs_cache_ramcloud cvmfs_cache_null
-
-cvmfs_cache_null: cvmfs_cache_null.cc
-	$(CXX) $(CXXFLAGS_GENERIC) $(CXXFLAGS_CVMFS) -o cvmfs_cache_null cvmfs_cache_null.cc $(LDFLAGS_GENERIC) $(LDFLAGS_CVMFS)
+all: cvmfs_cache_ramcloud
 
 cvmfs_cache_ramcloud: cvmfs_cache_ramcloud.cc
 	$(CXX) $(CXXFLAGS) -o cvmfs_cache_ramcloud cvmfs_cache_ramcloud.cc $(LDFLAGS)
@@ -28,5 +25,5 @@ stoprc:
 	killall screen
 
 clean:
-	rm -f cvmfs_cache_ramcloud cvmfs_cache_null
+	rm -f cvmfs_cache_ramcloud
 
