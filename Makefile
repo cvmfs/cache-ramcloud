@@ -13,8 +13,8 @@ LDFLAGS = $(LDFLAGS_GENERIC) $(LDFLAGS_CVMFS) $(LDFLAGS_RAMCLOUD)
 
 all: cvmfs_cache_ramcloud
 
-cvmfs_cache_ramcloud: cvmfs_cache_ramcloud.cc
-	$(CXX) $(CXXFLAGS) -o cvmfs_cache_ramcloud cvmfs_cache_ramcloud.cc $(LDFLAGS)
+cvmfs_cache_ramcloud: cvmfs_cache_ramcloud.cc schema.cc schema.h
+	$(CXX) $(CXXFLAGS) -o cvmfs_cache_ramcloud cvmfs_cache_ramcloud.cc schema.cc $(LDFLAGS)
 
 startrc:
 	rm -f /tmp/coordinator.log /tmp/master*.log
