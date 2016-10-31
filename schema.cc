@@ -27,5 +27,5 @@ void ObjectData::SetDescription(const char *s) {
   size_t l = std::min(static_cast<unsigned>(strlen(s)),
                       kMaxDescriptionLength - 1);
   memcpy(description, s, l);
-  description[l + 1] = '\0';
+  description[l] = '\0';
 }
