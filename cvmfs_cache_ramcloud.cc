@@ -37,7 +37,14 @@ struct TxnTransient {
   ObjectData object;
 };
 
-map<ObjectKey, Nonce> open_files;
+struct OpenFile {
+  OpenFile() : nonce(), size(0) { }
+  OpenFile(const Nonce &n, uint64_t s) : nonce(n), size(s) { }
+  Nonce nonce;
+  uint64_t size;
+};
+
+map<ObjectKey, OpenFile> open_files;
 map<uint64_t, TxnTransient> transactions;
 
 
@@ -73,7 +80,7 @@ static int rc_chrefcnt(struct cvmcache_hash *id, int32_t change_by) {
     } catch (RAMCloud::ClientException &e) { }
   } while (!success);
   if (change_by > 0) {
-    open_files[ObjectKey(*id)] = object.nonce;
+    open_files[ObjectKey(*id)] = OpenFile(object.nonce, object.size);
   }
   printf("%s file %s\n",
          (change_by == 1) ? "opening" : "closing", object.description);
@@ -85,20 +92,9 @@ int rc_obj_info(struct cvmcache_hash *id,
                 struct cvmcache_object_info *info)
 {
   //printf("Info %s... ", cvmcache_hash_print(id));
-  ObjectKey key(*id);
-  RAMCloud::Buffer buffer;
-  try {
-    ramcloud->read(table_objects, &key, sizeof(key), &buffer);
-    assert(buffer.size() == sizeof(ObjectData));
-    ObjectData object;
-    buffer.copy(0, sizeof(object), &object);
-    // Currently only size is needed
-    info->size = object.size;
-    return CVMCACHE_STATUS_OK;
-  } catch (RAMCloud::ClientException &e) {
-    //printf("not available\n");
-    return CVMCACHE_STATUS_NOENTRY;
-  }
+  // Currently only size is needed
+  info->size = open_files[ObjectKey(*id)].size;
+  return CVMCACHE_STATUS_OK;
 }
 
 
@@ -107,7 +103,10 @@ static int rc_pread(struct cvmcache_hash *id,
                     uint32_t *size,
                     unsigned char *buffer)
 {
-  Nonce nonce = open_files[ObjectKey(*id)];
+  OpenFile file = open_files[ObjectKey(*id)];
+  if (offset >= file.size)
+    return CVMCACHE_STATUS_OUTOFBOUNDS;
+  Nonce nonce = file.nonce;
   PartKey key(nonce, offset / part_size);
   uint32_t nbytes = 0;
   while (nbytes < *size) {
