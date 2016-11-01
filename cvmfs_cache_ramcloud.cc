@@ -314,7 +314,7 @@ int rc_listing_end(int64_t lst_id) {
 
 
 void Usage(const char *progname) {
-  printf("%s <RAMCloud locator> <Cvmfs cache socket>\n", progname);
+  printf("%s <RAMCloud locator> <Cvmfs cache locator>\n", progname);
 }
 
 
@@ -351,9 +351,9 @@ int main(int argc, char **argv) {
   int retval = cvmcache_listen(ctx, argv[2]);
   assert(retval);
   printf("Listening for cvmfs clients on %s\n", argv[2]);
-  chown(argv[2], 993, 992);
   cvmcache_process_requests(ctx, 0);
   while (true) {
+    // TODO(jblomer): refresh leases every so often
     sleep(1);
   }
   delete ramcloud;
