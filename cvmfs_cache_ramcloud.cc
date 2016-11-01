@@ -1,8 +1,9 @@
 #define __STDC_FORMAT_MACROS
 
-#include <libcvmfs_cache.h>
 #include <ClientException.h>
+#include <libcvmfs_cache.h>
 #include <RamCloud.h>
+#include <TableEnumerator.h>
 
 #include <alloca.h>
 #include <inttypes.h>
@@ -11,6 +12,7 @@
 
 #include <cassert>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <map>
@@ -36,14 +38,13 @@ struct TxnTransient {
   ObjectData object;
 };
 
-struct OpenFile {
-  OpenFile() : nonce(), size(0) { }
-  OpenFile(const Nonce &n, uint64_t s) : nonce(n), size(s) { }
-  Nonce nonce;
-  uint64_t size;
+struct Listing {
+  RAMCloud::TableEnumerator *enumerator;
+  enum cvmcache_object_type type;
 };
 
 map<uint64_t, TxnTransient> transactions;
+map<uint64_t, Listing> listings;
 
 
 static int rc_chrefcnt(struct cvmcache_hash *id, int32_t change_by) {
@@ -83,7 +84,7 @@ static int rc_chrefcnt(struct cvmcache_hash *id, int32_t change_by) {
 }
 
 
-int rc_obj_info(struct cvmcache_hash *id,
+static int rc_obj_info(struct cvmcache_hash *id,
                 struct cvmcache_object_info *info)
 {
   //printf("Info %s... ", cvmcache_hash_print(id));
@@ -169,7 +170,7 @@ static int rc_start_txn(struct cvmcache_hash *id,
 }
 
 
-int rc_write_txn(uint64_t txn_id,
+static int rc_write_txn(uint64_t txn_id,
                  unsigned char *buffer,
                  uint32_t size)
 {
@@ -190,7 +191,7 @@ int rc_write_txn(uint64_t txn_id,
 }
 
 
-int rc_commit_txn(uint64_t txn_id) {
+static int rc_commit_txn(uint64_t txn_id) {
   TxnTransient txn(transactions[txn_id]);
   printf("Commit transaction %" PRIu64 ", size %" PRIu64 "\n",
          txn_id, txn.object.size);
@@ -233,12 +234,84 @@ int rc_commit_txn(uint64_t txn_id) {
   return CVMCACHE_STATUS_OK;
 }
 
-int rc_abort_txn(uint64_t txn_id) {
+static int rc_abort_txn(uint64_t txn_id) {
   printf("Abort transaction %" PRIu64 "\n", txn_id);
   transactions.erase(txn_id);
   // TODO(jblomer): remove from ramcloud
   return CVMCACHE_STATUS_OK;
 }
+
+static int rc_info(uint64_t *size, uint64_t *used, uint64_t *pinned) {
+  *size = uint64_t(-1);
+  *used = *pinned = 0;
+  RAMCloud::TableEnumerator enumerator(*ramcloud, table_objects, false);
+  while (enumerator.hasNext()) {
+    ObjectKey *key;
+    ObjectData *object;
+    uint32_t key_length;
+    uint32_t data_length;
+    enumerator.nextKeyAndData(
+        &key_length,
+        const_cast<const void **>(reinterpret_cast<void **>(&key)),
+        &data_length,
+        const_cast<const void **>(reinterpret_cast<void **>(&object)));
+    assert(key_length == sizeof(ObjectKey));
+    assert(data_length == sizeof(ObjectData));
+    *used += object->size;
+    if (object->refcnt > 0) {
+      *pinned += object->size;
+    }
+  }
+  return CVMCACHE_STATUS_OK;
+}
+
+
+int rc_listing_begin(uint64_t lst_id, enum cvmcache_object_type type) {
+  Listing lst;
+  lst.type = type;
+  lst.enumerator =
+    new RAMCloud::TableEnumerator(*ramcloud, table_objects, false);
+  listings[lst_id] = lst;
+  return CVMCACHE_STATUS_OK;
+}
+
+int rc_listing_next(int64_t lst_id, struct cvmcache_object_info *item) {
+  Listing lst = listings[lst_id];
+  do {
+    if (!lst.enumerator->hasNext())
+      return CVMCACHE_STATUS_OUTOFBOUNDS;
+
+    ObjectKey *key;
+    ObjectData *object;
+    uint32_t key_length;
+    uint32_t data_length;
+    lst.enumerator->nextKeyAndData(
+        &key_length,
+        const_cast<const void **>(reinterpret_cast<void **>(&key)),
+        &data_length,
+        const_cast<const void **>(reinterpret_cast<void **>(&object)));
+    assert(key_length == sizeof(ObjectKey));
+    assert(data_length == sizeof(ObjectData));
+    if (object->type != lst.type)
+      continue;
+    item->id = key->id;
+    item->size = object->size;
+    item->type = object->type;
+    item->pinned = object->refcnt > 0;
+    item->description = NULL;
+    if ((object->description != NULL) || (strlen(object->description) == 0))
+      item->description = strdup(object->description);
+    return CVMCACHE_STATUS_OK;
+  } while (true);
+}
+
+int rc_listing_end(int64_t lst_id) {
+  Listing lst = listings[lst_id];
+  delete lst.enumerator;
+  listings.erase(lst_id);
+  return CVMCACHE_STATUS_OK;
+}
+
 
 void Usage(const char *progname) {
   printf("%s <RAMCloud locator> <Cvmfs cache socket>\n", progname);
@@ -265,7 +338,12 @@ int main(int argc, char **argv) {
   callbacks.cvmcache_write_txn = rc_write_txn;
   callbacks.cvmcache_commit_txn = rc_commit_txn;
   callbacks.cvmcache_abort_txn = rc_abort_txn;
-  callbacks.capabilities = CVMCACHE_CAP_REFCOUNT;
+  callbacks.cvmcache_info = rc_info;
+  callbacks.cvmcache_listing_begin = rc_listing_begin;
+  callbacks.cvmcache_listing_next = rc_listing_next;
+  callbacks.cvmcache_listing_end = rc_listing_end;
+  callbacks.capabilities =
+    CVMCACHE_CAP_REFCOUNT | CVMCACHE_CAP_INFO | CVMCACHE_CAP_LIST;
 
   ctx = cvmcache_init(&callbacks);
   assert(ctx != NULL);
