@@ -1,6 +1,6 @@
 LIBCVMFS_CACHE_DIR = .
 RAMCLOUD_DIR = RAMCloud
-RAMCLOUD_BRANCH = $(shell git branch --no-color | grep '\*' | awk '{print $2}')
+RAMCLOUD_BRANCH = $(shell cd $(RAMCLOUD_DIR) && git branch --no-color | grep '\*' | awk '{print $$2}')
 
 CXX = g++
 CXXFLAGS_GENERIC = -std=c++11 -g -Wall -pthread
