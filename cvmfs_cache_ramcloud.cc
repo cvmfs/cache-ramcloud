@@ -48,7 +48,6 @@ map<uint64_t, Listing> listings;
 
 
 static int rc_chrefcnt(struct cvmcache_hash *id, int32_t change_by) {
-  //printf("Refcnt %s (%d)... ", cvmcache_hash_print(id), change_by);
   ObjectKey key(*id);
   RAMCloud::Buffer buffer;
   ObjectData object;
@@ -59,7 +58,6 @@ static int rc_chrefcnt(struct cvmcache_hash *id, int32_t change_by) {
       ramcloud->read(table_objects, &key, sizeof(key), &buffer,
                      NULL, &version);
     } catch (RAMCloud::ClientException &e) {
-      //printf("not available\n");
       return CVMCACHE_STATUS_NOENTRY;
     }
     assert(buffer.size() == sizeof(ObjectData));
@@ -241,9 +239,9 @@ static int rc_abort_txn(uint64_t txn_id) {
   return CVMCACHE_STATUS_OK;
 }
 
-static int rc_info(uint64_t *size, uint64_t *used, uint64_t *pinned) {
-  *size = uint64_t(-1);
-  *used = *pinned = 0;
+static int rc_info(struct cvmcache_info *info) {
+  info->size_bytes = uint64_t(-1);
+  info->used_bytes = info->pinned_bytes = 0;
   RAMCloud::TableEnumerator enumerator(*ramcloud, table_objects, false);
   while (enumerator.hasNext()) {
     ObjectKey *key;
@@ -257,9 +255,9 @@ static int rc_info(uint64_t *size, uint64_t *used, uint64_t *pinned) {
         const_cast<const void **>(reinterpret_cast<void **>(&object)));
     assert(key_length == sizeof(ObjectKey));
     assert(data_length == sizeof(ObjectData));
-    *used += object->size;
+    info->used_bytes += object->size;
     if (object->refcnt > 0) {
-      *pinned += object->size;
+      info->pinned_bytes += object->size;
     }
   }
   return CVMCACHE_STATUS_OK;
