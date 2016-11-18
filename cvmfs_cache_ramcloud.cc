@@ -109,7 +109,7 @@ static int rc_pread(struct cvmcache_hash *id,
   assert(obj_buffer.size() == sizeof(ObjectData));
   ObjectData object;
   obj_buffer.copy(0, sizeof(object), &object);
-  if ((offset > 0) && (offset >= object.size))
+  if (offset > object.size)
     return CVMCACHE_STATUS_OUTOFBOUNDS;
 
   Nonce nonce = object.nonce;
