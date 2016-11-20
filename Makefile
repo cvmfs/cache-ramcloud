@@ -20,7 +20,7 @@ cvmfs_cache_ramcloud: cvmfs_cache_ramcloud.cc schema.cc schema.h
 startrc:
 	rm -f /tmp/coordinator.log /tmp/master*.log
 	screen -dmS coordinator $(RAMCLOUD_DIR)/obj.$(RAMCLOUD_BRANCH)/coordinator -n --logFile /tmp/coordinator.log -C basic+udp:host=127.0.0.1,port=11211 -d 5000 --timeout 5000
-	screen -dms master1 $(RAMCLOUD_DIR)/obj.$(RAMCLOUD_BRANCH)/server -t 4000 -r 0 --logFile /tmp/master1.log -C basic+udp:host=127.0.0.1,port=11211 -L basic+udp:host=127.0.0.1,port=11242 --timeout 5000 -m
+	screen -dmS master1 $(RAMCLOUD_DIR)/obj.$(RAMCLOUD_BRANCH)/server -t 4000 -r 0 --logFile /tmp/master1.log -C basic+udp:host=127.0.0.1,port=11211 -L basic+udp:host=127.0.0.1,port=11242 --timeout 5000 -m
 
 stoprc:
 	killall screen
