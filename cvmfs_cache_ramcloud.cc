@@ -85,7 +85,6 @@ static int rc_chrefcnt(struct cvmcache_hash *id, int32_t change_by) {
 static int rc_obj_info(struct cvmcache_hash *id,
                 struct cvmcache_object_info *info)
 {
-  //printf("Info %s... ", cvmcache_hash_print(id));
   // Currently only size is needed
   ObjectKey key(*id);
   RAMCloud::Buffer buffer;
@@ -118,11 +117,9 @@ static int rc_pread(struct cvmcache_hash *id,
   while (nbytes < *size) {
     RAMCloud::Buffer part_buffer;
     try {
-      printf("reading %s, %" PRIu64 "\n",
+      printf("reading %s, part number %" PRIu64 "\n",
              cvmcache_hash_print(id), part_key.part_nr);
-      //printf("before read\n");
       ramcloud->read(table_parts, &part_key, sizeof(part_key), &part_buffer);
-      printf("after read\n");
       uint64_t in_block_offset = 0;
       if (nbytes == 0) {
         in_block_offset =
@@ -134,14 +131,11 @@ static int rc_pread(struct cvmcache_hash *id,
       part_buffer.copy(in_block_offset, remaining, buffer + nbytes);
       nbytes += remaining;
     } catch (RAMCloud::ClientException &e) {
-      //printf("  ...pread failed with %s\n", e.what());
       break;
     }
     part_key.part_nr++;
   }
   *size = nbytes;
-  //printf("  ... ok (%u)\n", nbytes);
-  // TODO: out of bounds
   return CVMCACHE_STATUS_OK;
 }
 
@@ -172,11 +166,8 @@ static int rc_write_txn(uint64_t txn_id,
                  unsigned char *buffer,
                  uint32_t size)
 {
-  printf("Write transaction %" PRIu64 "\n", txn_id);
   TxnTransient txn(transactions[txn_id]);
   PartKey key(txn.object.nonce, txn.object.size / part_size);
-  //printf("  writing %s, %" PRIu64 "\n",
-  //       cvmcache_hash_print(&block_key.hash), block_key.part_nr);
   try {
     ramcloud->write(table_parts, &key, sizeof(key), buffer, size);
   } catch (RAMCloud::ClientException &e) {
@@ -191,8 +182,8 @@ static int rc_write_txn(uint64_t txn_id,
 
 static int rc_commit_txn(uint64_t txn_id) {
   TxnTransient txn(transactions[txn_id]);
-  printf("Commit transaction %" PRIu64 ", size %" PRIu64 "\n",
-         txn_id, txn.object.size);
+  printf("commit object %s, size %" PRIu64 "\n",
+         txn.object.description, txn.object.size);
   txn.object.refcnt = 1;
   txn.object.last_updated = time(NULL);
   ObjectKey key(txn.id);
@@ -225,10 +216,6 @@ static int rc_commit_txn(uint64_t txn_id) {
   TxnKey txn_key(txn.object.nonce);
   ramcloud->remove(table_transactions, &txn_key, sizeof(txn_key));
   transactions.erase(txn_id);
-  //char *hash = cvmcache_hash_print(&txn.id);
-  //printf("committed %s, size %" PRIu64 ", total size %" PRIu64 "\n",
-  //       hash, txn.size, size_stored);
-  //free(hash);
   return CVMCACHE_STATUS_OK;
 }
 
